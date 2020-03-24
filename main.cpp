@@ -17,9 +17,9 @@ struct Material
 {
 
 	Vec3f color;
-	Vec2f reflectivity;
+	Vec3f reflectivity;
 	float reflExp;
-	Material(const Vec3f &c, const Vec2f &r , const float &rE):color(c) , reflectivity(r), reflExp(rE){}
+	Material(const Vec3f &c, const Vec3f &r , const float &rE):color(c) , reflectivity(r), reflExp(rE){}
 	Material(){}
 };
 
@@ -70,7 +70,7 @@ bool first_hit(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphera> &s
 }
 
 
-Vec3f ray_start(const Vec3f &orig, const Vec3f &dir, const std::vector<Svet> svets, const std::vector<Sphera> spheri)
+Vec3f ray_start(const Vec3f &orig, const Vec3f &dir, const std::vector<Svet> svets, const std::vector<Sphera> spheri, int d = 0)
 {
 	float sphere_dist = std::numeric_limits<float>::max();
 	float svet_diff = 0;
@@ -78,28 +78,31 @@ Vec3f ray_start(const Vec3f &orig, const Vec3f &dir, const std::vector<Svet> sve
 	float svet_dist;
 	float summ_refl = 0;
 	Vec3f hit, Norm, svet_dir;
-	Material material;
+	Material material, matblya;
 	Vec3f shadow_orig, shadow_pt, shadow_norm;
+	Vec3f ref_dir, ref_orig, ref_col;
 
 	
-	if(!first_hit(orig , dir, spheri, hit , Norm ,material))
+	if(d > 4 || !first_hit(orig , dir, spheri, hit , Norm ,material))
 	{
 		return Vec3f(0.2,0.7,0.8);
 	}
+	ref_dir = reflect(dir , Norm);
+	ref_orig = ref_dir * Norm < 0 ? hit - Norm*1e-3 : hit + Norm*1e-3;
+	ref_col = ray_start(ref_orig , ref_dir , svets, spheri , d+1);
 
 	for (int i = 0; i < svets.size(); ++i)
 	{
 		svet_dir = (svets[i].coord - hit).normalize();
 		svet_dist = (svets[i].coord - hit).norm();
 		shadow_orig = svet_dir * Norm < 0 ? hit - Norm*1e-3 : hit + Norm*1e-3;
-		if(first_hit(shadow_orig, svet_dir, spheri , shadow_pt , shadow_norm , material) && (shadow_pt - shadow_orig).norm() < svet_dist)
-		{
+		if(first_hit(shadow_orig, svet_dir, spheri , shadow_pt , shadow_norm , matblya) && (shadow_pt - shadow_orig).norm() < svet_dist)
 			continue;
-		}
+		
 		summ_col += svets[i].intensity * std::max(0.f , svet_dir*Norm);
-		summ_refl += powf(std::max(0.f, reflect(svet_dir , Norm)*dir) , material.reflExp)*svets[i].intensity;
+		summ_refl += powf(std::max(0.f, -reflect(-svet_dir , Norm)*dir) , material.reflExp)*svets[i].intensity;
 	}
-	return material.color * summ_col* material.reflectivity[0] + Vec3f(1. , 1., 1.)*summ_refl *material.reflectivity[1];
+	return material.color * summ_col* material.reflectivity[0] + Vec3f(1. , 1., 1.)*summ_refl *material.reflectivity[1] + ref_col * material.reflectivity[2];
 }
 
 void rendering()
@@ -114,11 +117,16 @@ void rendering()
 	std::vector<Sphera> shari;
 	std::vector<Svet> svets;
 
-	shari.push_back(Sphera(Vec3f(0, 0, -16), 1.5 ,Material(Vec3f(0.4,0.4,0.3) ,Vec2f(1.f ,1.f) , 50)));
-	shari.push_back(Sphera(Vec3f(5, 6,  -20), 1.5 ,Material(Vec3f(0.7,0.2,0.8) ,Vec2f(1.f ,1.f) , 30)));
-	shari.push_back(Sphera(Vec3f(-2, 6,  -50), 1.5 ,Material(Vec3f(0.4,0.4,0.3) ,Vec2f(1.f ,0.f) , 80)));
-	shari.push_back(Sphera(Vec3f(5, 7,  -17), 1.5 ,Material(Vec3f(0.4,0.4,0.3) ,Vec2f(1.f ,1.f) , 30)));
-	svets.push_back(Svet(Vec3f(-20, 20,  20), 1.5));
+	shari.push_back(Sphera(Vec3f(0, 0, -16), 1.5 ,Material(Vec3f(0.4,0.4,0.3) ,Vec3f(1.f ,1.f ,0.0) , 50)));
+	shari.push_back(Sphera(Vec3f(-5, 2,  -20), 3 ,Material(Vec3f(0.7,0.2,0.8) ,Vec3f(0.9 ,0.1 , 0.0) , 30)));
+	shari.push_back(Sphera(Vec3f(-5, 4,  -12.3), 1.5 ,Material(Vec3f(0.0, 10.0, 0.8) ,Vec3f(0.6, 10.0, 0) ,1425)));
+	shari.push_back(Sphera(Vec3f(5, 0,  -11), 1.0 ,Material(Vec3f(0.5, 0.0, 2) ,Vec3f(1.0 ,1.0, 0.) ,200)));
+	shari.push_back(Sphera(Vec3f(-3, 0,  -11), 1.0 ,Material(Vec3f(0.5, 0.0, 2) ,Vec3f(1.0 ,0, 0.0) ,200)));
+	shari.push_back(Sphera(Vec3f(1, -4,  -12), 1.0 ,Material(Vec3f(0.5, 0.0, 2) ,Vec3f(1.0 ,1.0, 0) ,200)));
+
+
+	svets.push_back(Svet(Vec3f(-20, 20,  20), 1.0));
+	svets.push_back(Svet(Vec3f(20,20,0) , 1.0));
 
 	for (size_t j = 0; j<HEIGHT; j++) 
 	{
@@ -127,7 +135,7 @@ void rendering()
             x =  (2*(i + 0.5)/(float)WIDTH  - 1)*tan(fov/2.)*WIDTH/(float)HEIGHT;
             y = -(2*(j + 0.5)/(float)HEIGHT - 1)*tan(fov/2.);
             dir = Vec3f(x, y, -1).normalize();
-            our_main_picture[i+j*WIDTH] = ray_start(Vec3f(0,0,0), dir, svets, shari);
+            our_main_picture[i+j*WIDTH] = ray_start(Vec3f(0,0,0), dir, svets, shari );
         
         }
     }
